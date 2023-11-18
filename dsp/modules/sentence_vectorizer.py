@@ -2,7 +2,10 @@ import abc
 from typing import List, Optional
 
 import numpy as np
-import openai
+from openai import OpenAI
+
+api_key = "YOUR_API_KEY_HERE"  # Replace with your actual API key
+client = OpenAI(api_key=api_key)
 
 
 class BaseSentenceVectorizer(abc.ABC):
@@ -23,11 +26,9 @@ class BaseSentenceVectorizer(abc.ABC):
         pass
 
     def _extract_text_from_examples(self, inp_examples: List["Example"]) -> List[str]:
-        text_to_vectorize = [
-            getattr(example, self.field_to_vectorize)
-            for example in inp_examples
+        return [
+            getattr(example, self.field_to_vectorize) for example in inp_examples
         ]
-        return text_to_vectorize
 
 
 class SentenceTransformersVectorizer(BaseSentenceVectorizer):
@@ -47,17 +48,17 @@ class SentenceTransformersVectorizer(BaseSentenceVectorizer):
         # this isn't a good practice, but with top-level import the whole DSP
         # module import will be slow (>5 sec), because SentenceTransformer is doing
         # it's directory/file-related magic under the hood :(
-        
+
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError as e:
             raise ImportError(
                 "You need to install sentence_transformers library to use pretrained embedders. "
                 "Please check the official doc https://www.sbert.net/ "
-                "or simply run `pip install sentence-transformers"
-            )
+                "or simply run `pip install sentence-transformers`"
+            ) from e
         from dsp.utils.ann_utils import determine_devices
-        
+
         self.num_devices, self.is_gpu = determine_devices(max_gpu_devices)
         self.proxy_device = 'cuda' if self.is_gpu else 'cpu'
 
@@ -127,7 +128,7 @@ class OpenAIVectorizer(BaseSentenceVectorizer):
         self.embed_batch_size = embed_batch_size
 
         if api_key:
-            openai.api_key = api_key
+            
 
     def __call__(self, inp_examples: List["Example"]) -> np.ndarray:
         text_to_vectorize = self._extract_text_from_examples(inp_examples)
@@ -140,10 +141,8 @@ class OpenAIVectorizer(BaseSentenceVectorizer):
             end_idx = (cur_batch_idx + 1) * self.embed_batch_size
             cur_batch = text_to_vectorize[start_idx: end_idx]
             # OpenAI API call:
-            response = openai.Embedding.create(
-                model=self.model,
-                input=cur_batch
-            )
+            response = client.embeddings.create(model=self.model,
+            input=cur_batch)
 
             cur_batch_embeddings = [cur_obj['embedding'] for cur_obj in response['data']]
             embeddings_list.extend(cur_batch_embeddings)

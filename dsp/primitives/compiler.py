@@ -1,24 +1,32 @@
 import os
-import time
-import tqdm
-import ujson
 import random
 import subprocess
+import time
 
-import dsp
+import tqdm
+import ujson
 from datasets.fingerprint import Hasher
 
+import dsp
+
 if os.environ.get('DSP_NOTEBOOK_CACHEDIR'):
-    training_data_directory = os.path.join(os.environ.get('DSP_NOTEBOOK_CACHEDIR'), 'compiler')
+    training_data_directory = os.path.join(
+        os.environ.get('DSP_NOTEBOOK_CACHEDIR'), 'compiler'
+    )
 else:
     training_data_directory = 'cache/compiler'
 
 
-compilations_assumed_to_exist={'ft-zvEdzQVQ5xwlxvNPrxl6kpnw': 'ada:ft-stanfordpraglab-2023-02-09-19-50-49'}
+compilations_assumed_to_exist = {
+    'ft-zvEdzQVQ5xwlxvNPrxl6kpnw': 'ada:ft-stanfordpraglab-2023-02-09-19-50-49'
+}
 
 
 def openai_check_finetune(jobname):
-    if dsp.settings.force_reuse_cached_compilation and jobname in compilations_assumed_to_exist:
+    if (
+        dsp.settings.force_reuse_cached_compilation
+        and jobname in compilations_assumed_to_exist
+    ):
         return compilations_assumed_to_exist[jobname]
 
     command = f"""openai api fine_tunes.get -i {jobname}"""
@@ -33,7 +41,9 @@ def openai_check_finetune(jobname):
             return output['fine_tuned_model']
 
         if output['status'] in ['pending', 'running']:
-            print(f'Compiling, run ```openai api fine_tunes.follow -i {jobname}``` for details...')
+            print(
+                f'Compiling, run ```openai api fine_tunes.follow -i {jobname}``` for details...'
+            )
             time.sleep(60)
             return openai_check_finetune(jobname)
     except:
@@ -49,11 +59,11 @@ def convert_to_training_point2(y, inputs, outputs, template):
     prompt = template(y_, show_guidelines=False)
 
     completion = y[outputs[0]]
-    output_fields = template.fields[len(inputs):]
+    output_fields = template.fields[len(inputs) :]
 
     for field in output_fields[1:]:
         completion += f"\n\n{field.name} " + y[field.output_variable]
-    
+
     completion = " " + completion + " </s>"
     return {'prompt': prompt, 'completion': completion}
 
@@ -67,9 +77,18 @@ def simulate(program, input_examples):
         if prediction is not None:
             # assert len(prediction.compiling_stages) == 2, "TMP"
             for stage in prediction.compiling_stages:
-                name, template, inputs, outputs = stage['name'], stage['template'], stage['inputs'], stage['outputs']
-                training_data.append(convert_to_training_point2(prediction.get(name), inputs, outputs, template))
-    
+                name, template, inputs, outputs = (
+                    stage['name'],
+                    stage['template'],
+                    stage['inputs'],
+                    stage['outputs'],
+                )
+                training_data.append(
+                    convert_to_training_point2(
+                        prediction.get(name), inputs, outputs, template
+                    )
+                )
+
     r = random.Random(0)
     r.shuffle(training_data)
 
@@ -84,19 +103,21 @@ def openai_finetune_(name, target):
     print(command)
 
     # command = """python script.py"""
-    process = subprocess.Popen(command.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen(
+        command.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
 
     while line := process.stdout.readline().decode().strip():
         if 'created fine-tune:' in line.lower():
             jobname = line.split()[-1]
             break
-        
+
     #     if 'costs $' in line.lower():
     #         cost = line.split()[-1]
     #         break
 
     # assert cost[0] == '$'
-    
+
     # if float(cost[1:]) > 300:
     #     print(f'Got cost {cost} -- you may wanna cancel the job: openai api fine_tunes.cancel -i {jobname}')
 
@@ -126,12 +147,12 @@ def openai_finetune(name, target):
             return jobname, ft
     except:
         pass
-    
+
     jobname, ft = openai_finetune_(name, target)
 
     with open(training_data_path, 'w') as f:
         f.write(ujson.dumps((jobname, ft)) + '\n')
-    
+
     return jobname, ft
 
 
@@ -158,6 +179,7 @@ def finetune(training_data, target):
     ft = dsp.GPT3(model=ft, stop=" </s>")
     return ft
 
+
 # 4. Return updated program.
 def compile(program, examples, target='ada'):
     training_data = simulate(program, examples)
@@ -169,4 +191,3 @@ def compile(program, examples, target='ada'):
 
     compiled_program.lm = compiled_lm
     return compiled_program
-

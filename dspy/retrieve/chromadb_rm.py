@@ -4,6 +4,10 @@ Retriever model for chromadb
 
 from typing import Optional, List, Union
 import openai
+from openai import AzureOpenAI
+
+client = AzureOpenAI(api_key=openai_api_key,
+api_version=openai_api_version)
 import dspy
 import backoff
 from dsp.utils import dotdict
@@ -72,13 +76,14 @@ class ChromadbRM(dspy.Retrieve):
 
         # If not provided, defaults to env vars
         if openai_api_key:
-            openai.api_key = openai_api_key
+            
         if openai_api_type:
-            openai.api_type = openai_api_type
+            
         if openai_api_base:
-            openai.api_base = openai_api_base
+            # TODO: The 'openai.api_base' option isn't read in the client API. You will need to pass it when you instantiate the client, e.g. 'OpenAI(api_base=openai_api_base)'
+            # openai.api_base = openai_api_base
         if openai_api_version:
-            openai.api_version = openai_api_version
+            
         if openai_api_provider:
             self._openai_api_provider = openai_api_provider
 
@@ -111,7 +116,7 @@ class ChromadbRM(dspy.Retrieve):
 
     @backoff.on_exception(
         backoff.expo,
-        (openai.error.RateLimitError, openai.error.ServiceUnavailableError),
+        (openai.RateLimitError, openai.ServiceUnavailableError),
         max_time=15,
     )
     def _get_embeddings(self, queries: List[str]) -> List[List[float]]:
@@ -131,16 +136,12 @@ class ChromadbRM(dspy.Retrieve):
                 "api_version": openai.api_version,
                 "api_base": openai.api_base,
             }
-            embedding = openai.Embedding.create(
-                input=queries,
-                model=self._openai_embed_model,
-                **model_args,
-                api_provider=self._openai_api_provider
-            )
+            embedding = client.embeddings.create(input=queries,
+            model=self._openai_embed_model,
+            **model_args,
+            api_provider=self._openai_api_provider)
         else:
-            embedding = openai.Embedding.create(
-                input=queries, model=self._openai_embed_model
-            )
+            embedding = client.embeddings.create(input=queries, model=self._openai_embed_model)
         return [embedding["embedding"] for embedding in embedding["data"]]
 
     def forward(
@@ -167,6 +168,4 @@ class ChromadbRM(dspy.Retrieve):
             query_embeddings=embeddings, n_results=k
         )
 
-        passages = [dotdict({"long_text": x}) for x in results["documents"][0]]
-
-        return passages
+        return [dotdict({"long_text": x}) for x in results["documents"][0]]

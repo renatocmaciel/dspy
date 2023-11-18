@@ -4,8 +4,14 @@ from typing import Any, Literal, Optional, cast
 
 import backoff
 import openai
-import openai.error
-from openai.openai_object import OpenAIObject
+from openai import AzureOpenAI
+
+client = AzureOpenAI(api_version=kwargs.get("api_version"),
+                     api_key=self.kwargs.get("api_key"),
+                     azure_endpoint=self.kwargs.get("api_base"))
+
+from openai import OpenAIObject
+from openai.error import RateLimitError, ServiceUnavailableError, APIError
 
 from dsp.modules.cache_utils import CacheMemory, NotebookCacheMemory, cache_turn_on
 from dsp.modules.lm import LM
@@ -43,7 +49,7 @@ class GPT3(LM):
         self.provider = "openai"
 
         default_model_type = "chat" if ('gpt-3.5' in model or 'turbo' in model or 'gpt-4' in model) and ('instruct' not in model) else "text"
-        self.model_type = model_type if model_type else default_model_type
+        self.model_type = model_type or default_model_type
 
         if api_provider == "azure":
             assert (
@@ -51,15 +57,15 @@ class GPT3(LM):
             ), "Must specify engine or deployment_id for Azure API instead of model."
             assert "api_version" in kwargs, "Must specify api_version for Azure API"
             assert "api_base" in kwargs, "Must specify api_base for Azure API"
-            openai.api_type = "azure"
+            
             if kwargs.get("api_version"):
-                openai.api_version = kwargs["api_version"]
+                # Add your code here
 
         if api_key:
-            openai.api_key = api_key
+            # Add your code here
 
         if kwargs.get("api_base"):
-            openai.api_base = kwargs["api_base"]
+            # Add your code here
 
         self.kwargs = {
             "temperature": 0.0,
@@ -106,7 +112,86 @@ class GPT3(LM):
 
     @backoff.on_exception(
         backoff.expo,
-        (openai.error.RateLimitError, openai.error.ServiceUnavailableError, openai.error.APIError),
+        (RateLimitError, ServiceUnavailableError, APIError),
+        max_time=1000,
+        on_backoff=backoff_hdlr,
+    )
+    # END: ed8c6549bwf9
+        self,
+        model: str = "gpt-3.5-turbo-instruct",
+        api_key: Optional[str] = None,
+        api_provider: Literal["openai", "azure"] = "openai",
+        model_type: Literal["chat", "text"] = None,
+        **kwargs,
+    ):
+        super().__init__(model)
+        self.provider = "openai"
+
+        default_model_type = "chat" if ('gpt-3.5' in model or 'turbo' in model or 'gpt-4' in model) and ('instruct' not in model) else "text"
+        self.model_type = model_type or default_model_type
+
+        if api_provider == "azure":
+            assert (
+                "engine" in kwargs or "deployment_id" in kwargs
+            ), "Must specify engine or deployment_id for Azure API instead of model."
+            assert "api_version" in kwargs, "Must specify api_version for Azure API"
+            assert "api_base" in kwargs, "Must specify api_base for Azure API"
+            
+            if kwargs.get("api_version"):
+                
+
+        if api_key:
+            
+
+        if kwargs.get("api_base"):
+            
+
+        self.kwargs = {
+            "temperature": 0.0,
+            "max_tokens": 150,
+            "top_p": 1,
+            "frequency_penalty": 0,
+            "presence_penalty": 0,
+            "n": 1,
+            **kwargs,
+        }  # TODO: add kwargs above for </s>
+        
+        if api_provider != "azure":
+            self.kwargs["model"] = model
+        self.history: list[dict[str, Any]] = []
+
+    def _openai_client():
+        return openai
+
+    def basic_request(self, prompt: str, **kwargs) -> OpenAIObject:
+        raw_kwargs = kwargs
+
+        kwargs = {**self.kwargs, **kwargs}
+        if self.model_type == "chat":
+            # caching mechanism requires hashable kwargs
+            kwargs["messages"] = [{"role": "user", "content": prompt}]
+            kwargs = {
+                "stringify_request": json.dumps(kwargs)
+            }
+            response = cached_gpt3_turbo_request(**kwargs)
+            
+        else:
+            kwargs["prompt"] = prompt
+            response = cached_gpt3_request(**kwargs)
+
+        history = {
+            "prompt": prompt,
+            "response": response,
+            "kwargs": kwargs,
+            "raw_kwargs": raw_kwargs,
+        }
+        self.history.append(history)
+
+        return response
+
+    @backoff.on_exception(
+        backoff.expo,
+        (openai.RateLimitError, openai.ServiceUnavailableError, openai.APIError),
         max_time=1000,
         on_backoff=backoff_hdlr,
     )
@@ -141,7 +226,7 @@ class GPT3(LM):
         """
 
         assert only_completed, "for now"
-        assert return_sorted is False, "for now"
+        assert not return_sorted, "for now"
 
         # if kwargs.get("n", 1) > 1:
         #     if self.model_type == "chat":
@@ -183,7 +268,7 @@ class GPT3(LM):
 
 @CacheMemory.cache
 def cached_gpt3_request_v2(**kwargs):
-    return openai.Completion.create(**kwargs)
+    return client.completions.create(**kwargs)
 
 
 @functools.lru_cache(maxsize=None if cache_turn_on else 0)
@@ -199,7 +284,7 @@ cached_gpt3_request = cached_gpt3_request_v2_wrapped
 def _cached_gpt3_turbo_request_v2(**kwargs) -> OpenAIObject:
     if "stringify_request" in kwargs:
         kwargs = json.loads(kwargs["stringify_request"])
-    return cast(OpenAIObject, openai.ChatCompletion.create(**kwargs))
+    return cast(OpenAIObject, client.chat.completions.create(**kwargs))
 
 
 @functools.lru_cache(maxsize=None if cache_turn_on else 0)

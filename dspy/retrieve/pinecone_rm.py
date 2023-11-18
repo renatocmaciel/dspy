@@ -5,6 +5,9 @@ Author: Dhar Rawal (@drawal1)
 
 from typing import Optional, List, Union
 import openai
+from openai import OpenAI
+
+client = OpenAI(api_key=openai_api_key)
 import dspy
 import backoff
 
@@ -69,9 +72,10 @@ class PineconeRM(dspy.Retrieve):
 
         # If not provided, defaults to env vars OPENAI_API_KEY and OPENAI_ORGANIZATION
         if openai_api_key:
-            openai.api_key = openai_api_key
+            
         if openai_org:
-            openai.organization = openai_org
+            # TODO: The 'openai.organization' option isn't read in the client API. You will need to pass it when you instantiate the client, e.g. 'OpenAI(organization=openai_org)'
+            # openai.organization = openai_org
 
         super().__init__(k=k)
 
@@ -107,7 +111,7 @@ class PineconeRM(dspy.Retrieve):
 
     @backoff.on_exception(
         backoff.expo,
-        (openai.error.RateLimitError, openai.error.ServiceUnavailableError),
+        (openai.RateLimitError, openai.ServiceUnavailableError),
         max_time=15,
     )
     def _get_embeddings(self, queries: List[str]) -> List[List[float]]:
@@ -119,9 +123,7 @@ class PineconeRM(dspy.Retrieve):
         Returns:
             List[List[float]]: List of embeddings corresponding to each query.
         """
-        embedding = openai.Embedding.create(
-            input=queries, model=self._openai_embed_model
-        )
+        embedding = client.embeddings.create(input=queries, model=self._openai_embed_model)
         return [embedding["embedding"] for embedding in embedding["data"]]
 
     def forward(self, query_or_queries: Union[str, List[str]]) -> dspy.Prediction:
